@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from shapely.geometry import Point
 import pandas as pd
 import numpy as np
-import math  # Import math module for gamma function
+import math
 from sklearn.linear_model import LinearRegression
 
 # Configuration de la page
@@ -13,123 +13,79 @@ st.set_page_config(page_title="Atlas des Vents Algérien", layout="wide")
 # Titre de l'application
 st.title("📌 Atlas des Vents - Algérie")
 
+# URLs des données
+WINDS_DATA_URL = "https://www.dropbox.com/scl/fi/v90aqeqln90kszoduq7kl/dzv.geojson?rlkey=vje6i0mj9gs6hr4gz3j1k68l0&st=kk9659vr&raw=1"
+ADMIN_DATA_URL = "https://www.dropbox.com/scl/fi/p04cl3n46j5j0criwrsi2/all-wilayas-1.geojson?rlkey=5a3mlk10uyzwnro4bd1simx73&st=92542j4h&raw=1"
+CSV_DATA_URL = "https://www.dropbox.com/scl/fi/wvim31lbdoqaqh6ddwhe8/df_10.csv?rlkey=a70g34p22rnp8emtgf276qngx&st=wax4umm4&raw=1"
+
 @st.cache_data
 def load_data():
-    """Load GeoJSON data for wind and administrative boundaries."""
+    """Charge les données géospatiales"""
     try:
-        gdf = gpd.read_file("dzv.geojson")
-        admin = gpd.read_file("all-wilayas (1).geojson")
-        return gdf, admin
+        wind_gdf = gpd.read_file(WINDS_DATA_URL)
+        admin_gdf = gpd.read_file(ADMIN_DATA_URL)
+        return wind_gdf, admin_gdf
     except Exception as e:
-        st.error(f"Erreur de chargement des données : {e}")
+        st.error(f"Erreur de chargement des données géospatiales : {str(e)}")
         return None, None
 
 @st.cache_data
 def load_csv():
-    """Load CSV file with wind data."""
+    """Charge les données CSV"""
     try:
-        df = pd.read_csv("df_10.csv")
+        df = pd.read_csv(CSV_DATA_URL)
         return df
     except Exception as e:
-        st.error(f"Erreur lors du chargement du fichier CSV : {e}")
+        st.error(f"Erreur de chargement du CSV : {str(e)}")
         return None
 
-# Fonction for mathematical calculations
-
 def ml(a, b):
+    """Calcule la vitesse caractéristique selon la distribution de Weibull"""
     try:
-        if a != 0 and b != 0:
-            c = a / math.gamma(1 + 1 / b)
-        else:
-            c = 0
-    except OverflowError:
-        c = 0
-    return c
+        if a > 0 and b > 0:
+            return a / math.gamma(1 + 1/b)
+        return 0.0
+    except (OverflowError, ValueError):
+        return 0.0
 
-def ml(a, b):
-    try:
-        if (a != 0) and (b != 0):
-            c = a / math.gamma(1 + 1 / b)
-        else:
-            c = 0
-    except OverflowError:
-        c = 0
-    return c
-# Vectorisation de la fonction ml
-ml_vectorized = np.vectorize(ml)
+def train_model(features, target):
+    """Entraîne un modèle de régression linéaire"""
+    model = LinearRegression()
+    model.fit(features, target)
+    return model
 
-def estimer_vitesse_saisonniere(modele, latitude, longitude, z):
-    """Estimate seasonal wind speed."""
-    return modele.predict([[latitude, longitude, z]])[0]
+def estimate_wind_speed(model, lat, lon, elev):
+    """Estime la vitesse du vent avec le modèle entraîné"""
+    return max(0.0, model.predict([[lat, lon, elev]])[0])
 
-def intro(a, b, c, d, e, f, g):
-    """Train the model and estimate wind speeds."""
-    aa = np.column_stack((a, b, c))  # Combine independent variables
-    bb = np.array(d)  # Dependent variable
-    
-    modele = LinearRegression()
-    modele.fit(aa, bb)  # Train the model
-    
-    # Estimate seasonal wind speeds
-    return estimer_vitesse_saisonniere(modele, e, f, g)
-
-# Load additional data
-dfp = pd.read_csv("data1.txt", delimiter="\t").astype(float)
-matrice = dfp.to_numpy()
-vmat = matrice[:, 4:54:3]  # V speeds
-kmat = matrice[:, 3:54:3]  # K values
-cmat = matrice[:, 2:54:3]  # C values
-
-### Calculate v3 using mm
-##v3 = np.vectorize(mm)(cmat, kmat)  # Apply mm to each element of cmat and kmat
-##p = np.round(0.5 * 1.225 * v3, 2)
-
-# Function for interpolating speeds
-def vintrpo(X, Y, V, mat, x, y, v):
-    dist1 = np.array([intro(X, Y, V, mat[:, i], x, y, v) for i in range(16)]).flatten()
-    return np.hstack((dist1, v))  # Proper concatenation
-
-# Example of using vintrpo
-def adra(x, y, ve, ke):
-    mp = vintrpo(matrice[:, 0], matrice[:, 1], vmat[:, 16], vmat, x, y, ve)
-    mp1 = vintrpo(matrice[:, 0], matrice[:, 1], kmat[:, 16], kmat, x, y, ke)
-    mp0 = ml_vectorized(mp, mp1)
-
-    A = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre",
-         "Novembre", "Décembre", "Automne", "Hiver", "Printemps", "Été", "Annuel"]
-    m = {'dist': A, 'c': np.round(mp0, 1), 'k': np.round(mp1, 2), 'v': np.round(mp, 1)}
-    return pd.DataFrame(m)
-
+# Chargement des données
+wind_gdf, admin_gdf = load_data()
 df = load_csv()
 
-# Load wind and administrative data
-wind_gdf, admin_gdf = load_data()
-
 if wind_gdf is not None and admin_gdf is not None and df is not None:
-    # Create columns for the interface
+    # Configuration de l'interface
     col1, col2 = st.columns([3, 1])
-    
+
     with col1:
-        # Parameters in sidebar
+        # Paramètres dans la sidebar
         with st.sidebar:
             st.header("Paramètres de Visualisation")
-            vmin = st.number_input("Valeur Minimale", min_value=0.0, value=0.0)
-            vmax = st.number_input("Valeur Maximale", min_value=0.0, value=9.0)
+            vmin = st.number_input("Vitesse minimale (m/s)", min_value=0.0, value=3.0, step=0.5)
+            vmax = st.number_input("Vitesse maximale (m/s)", min_value=0.0, value=9.0, step=0.5)
             cmap = st.selectbox(
-                "Palette de Couleurs",
-                ['hsv', 'viridis', 'plasma', 'magma', 'jet'],
+                "Palette de couleurs",
+                ['viridis', 'plasma', 'magma', 'cividis', 'jet'],
                 index=0
             )
-            line_width = st.slider("Épaisseur des Frontières", 0.1, 2.0, 0.5)
-
-            st.header("Ajouter un Point")
+            
+            st.header("Coordonnées Personnalisées")
             lon = st.number_input("Longitude", value=3.0, format="%.6f")
             lat = st.number_input("Latitude", value=36.0, format="%.6f")
 
-        # Create the map
-        fig, ax = plt.subplots(figsize=(12, 10))
+        # Création de la carte
+        fig, ax = plt.subplots(figsize=(12, 8))
         
-        # Plot wind data
+        # Plot des données vent
         wind_gdf.plot(
             column='v_min',
             cmap=cmap,
@@ -137,51 +93,57 @@ if wind_gdf is not None and admin_gdf is not None and df is not None:
             vmin=vmin,
             vmax=vmax,
             ax=ax,
-            legend_kwds={'label': "Vitesse du vent (m/s)", 'orientation': "vertical"}
+            legend_kwds={'label': "Vitesse du vent (m/s)", 'shrink': 0.6}
         )
         
-        # Add administrative boundaries
+        # Frontières administratives
         admin_gdf.boundary.plot(
             ax=ax,
             edgecolor='black',
-            linewidth=line_width
+            linewidth=0.5
         )
 
-        # Add user input point
+        # Marqueur personnalisé
         if lon and lat:
-            user_point = gpd.GeoDataFrame(
-                pd.DataFrame({'geometry': [Point(lon, lat)]}),
+            gpd.GeoDataFrame(
+                geometry=[Point(lon, lat)],
                 crs="EPSG:4326"
-            )
-            user_point.plot(ax=ax, color='red', markersize=100, marker='o', label='Point saisi')
-            ax.legend()
+            ).plot(ax=ax, color='red', markersize=80, marker='*')
 
-        # Configure the map
-        ax.set_title("Distribution des Vitesses de Vent par Wilaya à 10m", fontsize=14)
+        ax.set_title("Distribution des Vitesses de Vent à 10m d'altitude", fontsize=14)
         ax.set_xlabel("Longitude")
         ax.set_ylabel("Latitude")
-        plt.tight_layout()
-        
-        # Display in Streamlit
         st.pyplot(fig)
+        plt.close()
 
     with col2:
-        # Find nearest point
-        if lon and lat:
-            df['distance'] = np.sqrt((df['longitude'] - lon)**2 + (df['latitude'] - lat)**2)
-            nearest_point = df.loc[df['distance'].idxmin()]
-            df1 = adra(nearest_point['longitude'], nearest_point['latitude'], nearest_point['v'], round(nearest_point['k']))
-
-            # Display the table under the map
-            st.dataframe(df1, use_container_width=True)
-
-        # Download data button
+        # Calculs dynamiques
+        if lat and lon:
+            # Trouver le point le plus proche
+            df['distance'] = np.hypot(df['latitude']-lat, df['longitude']-lon)
+            nearest = df.loc[df['distance'].idxmin()]
+            
+            # Entraînement du modèle
+            features = df[['latitude', 'longitude', 'elevation']]
+            target = df['v']
+            model = train_model(features, target)
+            
+            # Estimation
+            estimated_v = estimate_wind_speed(model, lat, lon, nearest['elevation'])
+            
+            # Affichage des résultats
+            st.subheader("Estimation du Vent")
+            st.metric(label="Vitesse estimée", value=f"{estimated_v:.1f} m/s")
+            st.write(f"**Station la plus proche:** {nearest['name']}")
+            st.write(f"**Distance:** {nearest['distance']:.2f} degrés")
+            
+        # Téléchargement des données
         st.download_button(
-            label="Télécharger l'atlas éolien",
-            data=open("dzv.geojson", "rb").read(),
-            file_name="donnees_vent.geojson",
+            label="📥 Télécharger les données",
+            data=wind_gdf.to_json().encode(),
+            file_name="atlas_vent.geojson",
             mime="application/geo+json"
         )
 
 else:
-    st.warning("Veuillez vérifier la présence des fichiers GeoJSON et CSV dans le répertoire.")
+    st.warning("Impossible de charger les données nécessaires. Vérifiez la connexion internet.")
