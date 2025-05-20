@@ -13,7 +13,7 @@ st.set_page_config(page_title="Atlas des Vents Algérien", layout="wide")
 # Titre de l'application
 st.title("📌 Atlas des Vents - Algérie")
 
-@st.cache_data
+@st.cache_data(ttl=3600, max_entries=10)
 def load_data():
     """Load GeoJSON data for wind and administrative boundaries."""
     try:
